@@ -1155,6 +1155,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             for (0..SwapChain.buf_count) |_| self.swap_chain.frame_sema.wait();
             defer for (0..SwapChain.buf_count) |_| self.swap_chain.frame_sema.post();
 
+            // With no command buffers in flight the command queue can go
+            // too: the Metal driver keeps ~4MB of per-queue channel buffers
+            // mapped in the process for every queue that has ever committed
+            // a command buffer, and only returns them when the queue is
+            // destroyed. The API re-creates the queue on the next frame.
+            if (comptime @hasDecl(GraphicsAPI, "releaseCommandQueue"))
+                self.api.releaseCommandQueue();
+
             for (&self.swap_chain.frames) |*frame| {
                 const target = self.api.initTarget(1, 1) catch |err| {
                     log.warn(

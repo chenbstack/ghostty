@@ -42,8 +42,9 @@ layer: IOSurfaceLayer,
 
 /// MTLDevice
 device: objc.Object,
-/// MTLCommandQueue
-queue: objc.Object,
+/// MTLCommandQueue. Null after releaseCommandQueue while the surface
+/// is occluded; lazily re-created by commandQueue() on the next frame.
+queue: ?objc.Object,
 
 /// Alpha blending mode
 blending: configpkg.Config.AlphaBlending,
@@ -156,9 +157,35 @@ pub fn init(alloc: Allocator, opts: rendererpkg.Options) !Metal {
 }
 
 pub fn deinit(self: *Metal) void {
-    self.queue.release();
+    if (self.queue) |queue| queue.release();
     self.device.release();
     self.layer.release();
+}
+
+/// Get the command queue, re-creating it if it was released while
+/// the surface was occluded.
+fn commandQueue(self: *Metal) objc.Object {
+    return self.queue orelse queue: {
+        const queue = self.device.msgSend(
+            objc.Object,
+            objc.sel("newCommandQueue"),
+            .{},
+        );
+        self.queue = queue;
+        break :queue queue;
+    };
+}
+
+/// Release the command queue. The Metal driver maps a fixed ~4MB of
+/// per-queue channel buffers into the process once a command buffer
+/// has been committed on a queue, and only returns them when the queue
+/// is destroyed — for an occluded surface that's idle memory. Safe to
+/// call only when no command buffers are in flight; the queue is
+/// re-created on the next frame.
+pub fn releaseCommandQueue(self: *Metal) void {
+    const queue = self.queue orelse return;
+    queue.release();
+    self.queue = null;
 }
 
 pub fn loopEnter(self: *Metal) void {
@@ -397,14 +424,14 @@ pub fn initAtlasTexture(
 
 /// Begin a frame.
 pub inline fn beginFrame(
-    self: *const Metal,
+    self: *Metal,
     /// Once the frame has been completed, the `frameCompleted` method
     /// on the renderer is called with the health status of the frame.
     renderer: *Renderer,
     /// The target is presented via the provided renderer's API when completed.
     target: *Target,
 ) !Frame {
-    return try Frame.begin(.{ .queue = self.queue }, renderer, target);
+    return try Frame.begin(.{ .queue = self.commandQueue() }, renderer, target);
 }
 
 fn chooseDevice() error{NoMetalDevice}!objc.Object {
