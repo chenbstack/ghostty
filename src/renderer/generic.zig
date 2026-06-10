@@ -1123,6 +1123,49 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     display_link.stop() catch {};
                 }
             }
+
+            // Draws are skipped entirely while occluded, so the swap chain
+            // targets would otherwise sit idle at full surface size
+            // (swap_chain_count × w × h × 4 bytes). Shrink them; drawFrame
+            // re-creates any wrong-sized target before drawing into it, so
+            // the first frame after becoming visible restores them. The
+            // surface currently on screen is unaffected: the layer holds
+            // its own reference to that IOSurface, so releasing ours here
+            // doesn't take the displayed frame down with it.
+            if (!visible) self.releaseSwapChainTargets();
+        }
+
+        /// Replace every swap chain target with a minimal 1×1 one,
+        /// releasing the GPU memory of the full-sized targets.
+        ///
+        /// Must be called on the render thread.
+        fn releaseSwapChainTargets(self: *Self) void {
+            self.draw_mutex.lock();
+            defer self.draw_mutex.unlock();
+
+            // A defunct swap chain's semaphore permits were consumed by
+            // its deinit; waiting on them here would hang forever.
+            if (self.swap_chain.defunct) return;
+
+            // Acquire every permit so we know the GPU is done with all
+            // in-flight frames before we touch their targets. Permits are
+            // posted from the graphics API's frame-completion handler, not
+            // by drawFrame itself, so this cannot deadlock with a frame
+            // that is still executing on the GPU.
+            for (0..SwapChain.buf_count) |_| self.swap_chain.frame_sema.wait();
+            defer for (0..SwapChain.buf_count) |_| self.swap_chain.frame_sema.post();
+
+            for (&self.swap_chain.frames) |*frame| {
+                const target = self.api.initTarget(1, 1) catch |err| {
+                    log.warn(
+                        "failed to shrink occluded render target, leaving full-sized err={}",
+                        .{err},
+                    );
+                    return;
+                };
+                frame.target.deinit();
+                frame.target = target;
+            }
         }
 
         /// Set the new font grid.
