@@ -1,0 +1,71 @@
+name: Glint GhosttyKit
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build"
+        required: false
+        default: "glint-dev"
+  push:
+    branches:
+      - glint-dev
+    paths-ignore:
+      - "**/*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build GhosttyKit.xcframework
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Cache Zig
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/zig
+          key: glint-ghosttykit-${{ runner.os }}-${{ hashFiles('build.zig.zon') }}
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Build GhosttyKit
+        run: |
+          set -euo pipefail
+          nix develop -c zig build \
+            -Doptimize=ReleaseFast \
+            -Demit-macos-app=false \
+            -Dxcframework-target=native
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          test -f macos/GhosttyKit.xcframework/Info.plist
+          short_sha="$(git rev-parse --short=7 HEAD)"
+          tar -czf "GhosttyKit-${short_sha}.tar.gz" -C macos GhosttyKit.xcframework
+          shasum -a 256 "GhosttyKit-${short_sha}.tar.gz" > "GhosttyKit-${short_sha}.sha256"
+          cat "GhosttyKit-${short_sha}.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GhosttyKit-${{ github.sha }}
+          path: |
+            GhosttyKit-*.tar.gz
+            GhosttyKit-*.sha256
+          if-no-files-found: error
