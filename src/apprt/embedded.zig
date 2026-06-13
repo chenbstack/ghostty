@@ -2048,6 +2048,13 @@ pub const CAPI = struct {
         }
         var modes_out: std.ArrayListUnmanaged(RenderGridMode) = .empty;
         defer modes_out.deinit(alloc);
+        // Per-row soft-wrap flags (true = this row continues into the next),
+        // so the client can re-join soft-wrapped lines instead of turning each
+        // grid row into a hard line break on restore.
+        var row_wraps: std.ArrayListUnmanaged(bool) = .empty;
+        defer row_wraps.deinit(alloc);
+        var scrollback_row_wraps: std.ArrayListUnmanaged(bool) = .empty;
+        defer scrollback_row_wraps.deinit(alloc);
 
         var cursor_row: ?u32 = null;
         var cursor_column: u32 = 0;
@@ -2175,8 +2182,10 @@ pub const CAPI = struct {
                 }
                 try builder.close();
                 if (in_viewport) {
+                    try row_wraps.append(alloc, page_rac.row.wrap);
                     vp_y += 1;
                 } else {
+                    try scrollback_row_wraps.append(alloc, page_rac.row.wrap);
                     sb_y += 1;
                 }
             }
@@ -2267,6 +2276,11 @@ pub const CAPI = struct {
         }
         try jw.endArray();
 
+        try jw.objectField("row_wraps");
+        try jw.beginArray();
+        for (row_wraps.items) |w| try jw.write(w);
+        try jw.endArray();
+
         try jw.objectField("active_screen");
         try jw.write(if (is_alternate) "alternate" else "primary");
 
@@ -2299,6 +2313,11 @@ pub const CAPI = struct {
 
         try jw.objectField("scrollback_rows");
         try jw.write(scrollback_rows);
+
+        try jw.objectField("scrollback_row_wraps");
+        try jw.beginArray();
+        for (scrollback_row_wraps.items) |w| try jw.write(w);
+        try jw.endArray();
 
         try jw.objectField("scrollback_spans");
         try jw.beginArray();
