@@ -161,8 +161,17 @@ pub const Coordinate = union(enum) {
         // Terminal/grid coordinates start at the TOP of the shell's
         // viewport (below the viewport-top inset), so coordinate math
         // treats the inset as if it were extra top padding even though
-        // the renderer paints cells through it.
-        const top_inset: u32 = size.padding.top + size.viewport_top_offset;
+        // the renderer paints cells through it. Use the rounded-DOWN
+        // inset (`viewportTopExtraRows() * cell.height`) instead of the
+        // raw pixel `viewport_top_offset` — the renderer floor-divides
+        // the inset to whole cells, dropping the sub-cell remainder, so
+        // viewport row 0 paints at `extra_rows * cell.height + padding.top`
+        // (NOT at `padding.top + viewport_top_offset`). Using the raw
+        // pixel value here would offset hit testing by the remainder and
+        // park clicks in the top `remainder` pixels of each row on the
+        // row ABOVE.
+        const extra_top_px: u32 = size.viewportTopExtraRows() * size.cell.height;
+        const top_inset: u32 = size.padding.top + extra_top_px;
         return switch (to) {
             .surface => .{ .surface = surface },
             .terminal => .{ .terminal = .{

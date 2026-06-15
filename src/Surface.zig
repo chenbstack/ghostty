@@ -2074,8 +2074,15 @@ pub fn dumpTextLocked(
             y += @floatFromInt(self.size.cell.height);
             y -= @floatFromInt(self.font_metrics.cell_baseline);
 
-            // Add padding
-            y += @floatFromInt(self.size.padding.top);
+            // Add padding + the inset rows the renderer paints above the
+            // live viewport. `tl_coord.y` is in viewport rows so it doesn't
+            // include the offset; we use `viewportTopExtraRows() *
+            // cell.height` rather than the raw pixel `viewport_top_offset`
+            // to match the renderer, which floor-divides the inset to
+            // whole cells (the sub-cell remainder is dropped — see
+            // `viewportTopExtraRows` and `imePoint`).
+            const extra_top: u32 = self.size.viewportTopExtraRows() * self.size.cell.height;
+            y += @floatFromInt(self.size.padding.top + extra_top);
 
             // Scale
             y /= content_scale.y;
@@ -2237,8 +2244,23 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     };
 
     const y: f64 = y: {
-        // Simple y * cell height gives the top-left corner, then add padding offset
-        var y: f64 = @floatFromInt(cursor.y * self.size.cell.height + self.size.padding.top);
+        // Simple y * cell height gives the top-left corner, then add
+        // padding plus the inset rows the renderer draws above the live
+        // viewport. `cursor.y` is in viewport rows (no gap_rows added),
+        // so without the inset compensation IME candidate windows park
+        // under the floating chrome instead of under the on-screen
+        // cursor. We use `viewportTopExtraRows() * cell.height` (NOT the
+        // raw `viewport_top_offset` pixel value) because the renderer
+        // floor-divides the inset to whole cells and drops the sub-cell
+        // remainder — viewport row 0 actually paints at
+        // `extra_top_rows * cell.height + padding.top`, not at
+        // `padding.top + viewport_top_offset`.
+        const extra_top: u32 = self.size.viewportTopExtraRows() * self.size.cell.height;
+        var y: f64 = @floatFromInt(
+            cursor.y * self.size.cell.height +
+                self.size.padding.top +
+                extra_top,
+        );
 
         // We want the bottom
         y += @floatFromInt(self.size.cell.height);
