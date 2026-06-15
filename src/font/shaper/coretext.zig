@@ -865,7 +865,7 @@ test "run iterator" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         // Get our run iterator
         var shaper = &testdata.shaper;
@@ -889,7 +889,7 @@ test "run iterator" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -912,7 +912,7 @@ test "run iterator" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         // Get our run iterator
         var shaper = &testdata.shaper;
@@ -937,7 +937,7 @@ test "run iterator" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         // Get our run iterator
         var shaper = &testdata.shaper;
@@ -989,7 +989,7 @@ test "run iterator: empty cells with background set" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         // Get our run iterator
         var shaper = &testdata.shaper;
@@ -1029,7 +1029,7 @@ test "shape" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1068,7 +1068,7 @@ test "shape nerd fonts" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1101,7 +1101,7 @@ test "shape inconsolata ligs" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1130,7 +1130,7 @@ test "shape inconsolata ligs" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1167,7 +1167,7 @@ test "shape monaspace ligs" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1205,7 +1205,7 @@ test "shape left-replaced lig in last run" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1243,7 +1243,7 @@ test "shape left-replaced lig in early run" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1278,7 +1278,7 @@ test "shape U+3C9 with JB Mono" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1315,7 +1315,7 @@ test "shape emoji width" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -1365,7 +1365,7 @@ test "shape emoji width long" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1405,7 +1405,7 @@ test "shape variation selector VS15" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1444,7 +1444,7 @@ test "shape variation selector VS16" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1480,7 +1480,7 @@ test "shape with empty cells in between" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1525,7 +1525,7 @@ test "shape Combining characters" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1575,7 +1575,7 @@ test "shape Devanagari string" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1634,7 +1634,7 @@ test "shape Tai Tham vowels (position differs from advance)" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1695,7 +1695,7 @@ test "shape Tai Tham letters (position.y differs from advance)" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1755,7 +1755,7 @@ test "shape Javanese ligatures" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1818,7 +1818,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1889,7 +1889,7 @@ test "shape Bengali ligatures with out of order vowels" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1944,7 +1944,7 @@ test "shape box glyphs" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Get our run iterator
     var shaper = &testdata.shaper;
@@ -1982,7 +1982,7 @@ test "shape selection boundary" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Full line selection
     {
@@ -2087,7 +2087,7 @@ test "shape cursor boundary" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // No cursor is full line
     {
@@ -2224,7 +2224,7 @@ test "shape cursor boundary and colored emoji" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // No cursor is full line
     {
@@ -2321,7 +2321,7 @@ test "shape cell attribute change" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -2349,7 +2349,7 @@ test "shape cell attribute change" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -2380,7 +2380,7 @@ test "shape cell attribute change" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -2411,7 +2411,7 @@ test "shape cell attribute change" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -2440,7 +2440,7 @@ test "shape cell attribute change" {
 
         var state: terminal.RenderState = .empty;
         defer state.deinit(alloc);
-        try state.update(alloc, &t);
+        try state.update(alloc, &t, 0);
 
         var shaper = &testdata.shaper;
         var it = shaper.runIterator(.{
@@ -2483,7 +2483,7 @@ test "shape high plane sprite font codepoint" {
 
     var state: terminal.RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     var shaper = &testdata.shaper;
     var it = shaper.runIterator(.{

@@ -353,6 +353,7 @@ const DerivedConfig = struct {
     window_padding_left: u32,
     window_padding_right: u32,
     window_padding_balance: configpkg.Config.WindowPaddingBalance,
+    viewport_top_offset: u32,
     window_height: u32,
     window_width: u32,
     title: ?[:0]const u8,
@@ -432,6 +433,7 @@ const DerivedConfig = struct {
             .window_padding_left = config.@"window-padding-x".top_left,
             .window_padding_right = config.@"window-padding-x".bottom_right,
             .window_padding_balance = config.@"window-padding-balance",
+            .viewport_top_offset = config.@"viewport-top-offset",
             .window_height = config.@"window-height",
             .window_width = config.@"window-width",
             .title = config.title,
@@ -479,6 +481,14 @@ const DerivedConfig = struct {
             .left = padding_left,
             .right = padding_right,
         };
+    }
+
+    /// Scale the configured viewport-top offset (points) to pixels using
+    /// the surface's vertical DPI. Returns 0 if the offset is disabled.
+    fn scaledViewportTopOffset(self: *const DerivedConfig, y_dpi: f32) u32 {
+        if (self.viewport_top_offset == 0) return 0;
+        const v: f32 = @floatFromInt(self.viewport_top_offset);
+        return @intFromFloat(@floor(v * y_dpi / 72));
     }
 };
 
@@ -559,6 +569,7 @@ pub fn init(
 
             .cell = font_grid.cellSize(),
             .padding = .{},
+            .viewport_top_offset = derived_config.scaledViewportTopOffset(y_dpi),
         };
 
         const explicit: rendererpkg.Padding = derived_config.scaledPadding(
@@ -3817,6 +3828,9 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
     if (self.config.window_padding_balance == .false) {
         self.size.padding = self.config.scaledPadding(x_dpi, y_dpi);
     }
+    // The viewport-top offset is also DPI-dependent (configured in
+    // points), so re-scale it regardless of the padding balance mode.
+    self.size.viewport_top_offset = self.config.scaledViewportTopOffset(y_dpi);
 
     // Force a resize event because the change in padding will affect
     // pixel-level changes to the renderer and viewport.

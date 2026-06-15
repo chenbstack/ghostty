@@ -1311,8 +1311,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     state.terminal.scrollViewport(.bottom);
                 }
 
-                // Update our terminal state
-                try self.terminal_state.update(self.alloc, state.terminal);
+                // Update our terminal state. The renderer paints
+                // `viewportTopExtraRows()` rows of scrollback up into the
+                // viewport-top-offset inset (if any), so we ask
+                // RenderState to prepend those many rows above the live
+                // viewport in `row_data`.
+                try self.terminal_state.update(
+                    self.alloc,
+                    state.terminal,
+                    self.size.viewportTopExtraRows(),
+                );
 
                 // If our terminal state is dirty at all we need to redo
                 // the viewport search.
@@ -2071,6 +2079,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // We only actually need the padding from this,
             // everything else is derived elsewhere.
             self.size.padding = size.padding;
+            self.size.viewport_top_offset = size.viewport_top_offset;
 
             self.updateScreenSizeUniforms();
 
@@ -2096,7 +2105,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 },
             ).add(self.size.padding);
 
-            // Setup our uniforms
+            // Setup our uniforms. Note: cells are rendered down from the
+            // base padding (NOT padding + viewport_top_offset) because
+            // the renderer fills the inset area with scrollback rows
+            // that came along in the extended RenderState row_data —
+            // i.e. cell row 0 in the renderer is the topmost scrollback
+            // row drawn into the inset, not the terminal's grid row 0.
             self.uniforms.projection_matrix = math.ortho2d(
                 -1 * @as(f32, @floatFromInt(self.size.padding.left)),
                 @floatFromInt(terminal_size.width + self.size.padding.right),
@@ -2267,6 +2281,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             uniforms.frame += 1;
 
             const screen = self.size.screen;
+            // Cursor uniform uses base padding because `cursor.grid_pos`
+            // is already an effective-row index (gap_rows applied during
+            // RenderState update), so it's relative to render row 0 at
+            // y = padding.top.
             const padding = self.size.padding;
             const cell = self.size.cell;
 

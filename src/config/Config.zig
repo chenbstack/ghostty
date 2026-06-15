@@ -2005,6 +2005,24 @@ keybind: Keybinds = .{},
 ///   don't look good extended.
 @"window-padding-color": WindowPaddingColor = .background,
 
+/// Extra inset (in points, scaled for DPI) above the terminal grid that is
+/// kept reserved for overlay chrome (e.g. a floating "island" titlebar
+/// hovering over the surface). Unlike `window-padding-y`, this inset
+/// participates in scrollback rendering: grid row 0 hugs the inset's
+/// bottom edge, and scrollback rows above the viewport are drawn UP into
+/// the inset area so a floating chrome layer composited above the surface
+/// (e.g. via material/glass blur) shows real terminal content scrolling
+/// underneath instead of dead background.
+///
+/// Setting this to 0 (the default) preserves the historical behavior in
+/// which the grid hugs `window-padding-y.top_left`.
+///
+/// This is intended to be overridden per-surface (via
+/// `ghostty_surface_config_s.viewport_top_offset`) rather than set
+/// globally, because in a typical embedder only the surface that touches
+/// the floating chrome needs the inset — split children below it do not.
+@"viewport-top-offset": u32 = 0,
+
 /// Synchronize rendering with the screen refresh rate. If true, this will
 /// minimize tearing and align redraws with the screen but may cause input
 /// latency. If false, this will maximize redraw frequency but may cause tearing,

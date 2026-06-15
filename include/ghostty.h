@@ -489,6 +489,13 @@ typedef struct {
   ghostty_surface_io_mode_e io_mode;
   ghostty_io_write_cb io_write_cb;
   void* io_write_userdata;
+  // Per-surface override for the global `viewport-top-offset` config.
+  // In points (scaled for DPI by ghostty). 0 means "inherit the global
+  // config value" — set to a non-zero pixel-equivalent (after the
+  // embedder applies scale) to reserve top inset above the grid for an
+  // overlay chrome layer (e.g. a floating titlebar). Scrollback above
+  // the viewport is rendered up into this inset.
+  uint32_t viewport_top_offset;
 } ghostty_surface_config_s;
 
 typedef struct {

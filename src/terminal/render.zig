@@ -39,7 +39,7 @@ const Terminal = @import("Terminal.zig");
 ///
 ///     var state: RenderState = .empty;
 ///     defer state.deinit(alloc);
-///     state.update(alloc, &terminal);
+///     state.update(alloc, &terminal, 0);
 ///
 /// Note: the render state retains as much memory as possible between updates
 /// to prevent future allocations. If a very large frame is rendered once,
@@ -258,15 +258,42 @@ pub const RenderState = struct {
 
     /// Update the render state to the latest terminal state.
     ///
+    /// `extra_top_rows` reserves that many rows ABOVE the live viewport
+    /// in `row_data`. The renderer uses these to draw scrollback rows up
+    /// into an inset above the terminal (e.g. behind a floating chrome
+    /// island), so its `viewport-top-offset` feature can show real
+    /// scrolling content underneath the chrome instead of dead padding.
+    /// If scrollback is shorter than `extra_top_rows`, the deficit is
+    /// returned as "gap" rows at the top of row_data (empty cells, no
+    /// pin), so the renderer draws background there instead of crashing.
+    /// Pass 0 to preserve the original viewport-only behavior.
+    ///
     /// This will reset the terminal dirty state since it is consumed
     /// by this render state update.
     pub fn update(
         self: *RenderState,
         alloc: Allocator,
         t: *Terminal,
+        extra_top_rows: size.CellCountInt,
     ) Allocator.Error!void {
         const s: *Screen = t.screens.active;
-        const viewport_pin = s.pages.getTopLeft(.viewport);
+        const real_viewport_pin = s.pages.getTopLeft(.viewport);
+
+        // Move the iterator's start pin up by `extra_top_rows` to drag
+        // scrollback rows into the inset. If scrollback can't satisfy
+        // the full amount, the leftover slots become "gap" rows.
+        var viewport_pin = real_viewport_pin;
+        var gap_rows: size.CellCountInt = 0;
+        if (extra_top_rows > 0) {
+            switch (real_viewport_pin.upOverflow(extra_top_rows)) {
+                .offset => |p| viewport_pin = p,
+                .overflow => |o| {
+                    viewport_pin = o.end;
+                    gap_rows = std.math.cast(size.CellCountInt, o.remaining) orelse extra_top_rows;
+                },
+            }
+        }
+        const effective_rows: size.CellCountInt = s.pages.rows +| extra_top_rows;
         const redraw = redraw: {
             // If our screen key changed, we need to do a full rebuild
             // because our render state is viewport-specific.
@@ -289,7 +316,7 @@ pub const RenderState = struct {
             }
 
             // If our dimensions changed, we do a full rebuild.
-            if (self.rows != s.pages.rows or
+            if (self.rows != effective_rows or
                 self.cols != s.pages.cols)
             {
                 break :redraw true;
@@ -304,7 +331,7 @@ pub const RenderState = struct {
         };
 
         // Always set our cheap fields, its more expensive to compare
-        self.rows = s.pages.rows;
+        self.rows = effective_rows;
         self.cols = s.pages.cols;
         self.viewport_pin = viewport_pin;
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
@@ -393,15 +420,49 @@ pub const RenderState = struct {
         // more quickly do the full-page dirty check.
         var last_dirty_page: ?*page.Page = null;
 
-        // Go through and setup our rows.
-        var row_it = s.pages.rowIterator(
-            .right_down,
-            .{ .viewport = .{} },
-            null,
-        );
-        var y: size.CellCountInt = 0;
+        // Mark the top `gap_rows` slots as virtual blank rows: no pin,
+        // empty cells. The renderer's rebuildRow sees cells.len == 0
+        // and writes nothing, leaving the background color in place —
+        // which is exactly what we want when scrollback can't fill the
+        // inset.
+        if (gap_rows > 0) {
+            for (
+                row_arenas[0..gap_rows],
+                row_pins[0..gap_rows],
+                row_rows[0..gap_rows],
+                row_cells[0..gap_rows],
+                row_sels[0..gap_rows],
+                row_highlights[0..gap_rows],
+                row_dirties[0..gap_rows],
+            ) |*arena_state, *row_pin, *raw, *cells, *sel, *highlights, *dirty| {
+                // Promote-then-reset clears any previous live cell data
+                // (e.g. when the gap shrinks as scrollback grows).
+                var arena = arena_state.promote(alloc);
+                defer arena_state.* = arena.state;
+                if (cells.len > 0) {
+                    _ = arena.reset(.retain_capacity);
+                    cells.clearRetainingCapacity();
+                }
+                row_pin.* = real_viewport_pin; // dummy, never read
+                // page.Row is a packed struct with no all-default init;
+                // zero it so non-default fields like `cells` and
+                // `semantic_prompt` get well-defined values. The
+                // renderer only ever consults `raw` via rowNeverExtendBg
+                // (gated by cells.len == 0 here, so the cells loop is
+                // skipped) and falls back to the .none semantic prompt.
+                raw.* = std.mem.zeroes(@TypeOf(raw.*));
+                sel.* = null;
+                highlights.* = .empty;
+                dirty.* = false;
+            }
+        }
+
+        // Go through and setup our rows, starting after any gap.
+        var row_it = viewport_pin.rowIterator(.right_down, null);
+        var y: size.CellCountInt = gap_rows;
         var any_dirty: bool = false;
         while (row_it.next()) |row_pin| : (y = y + 1) {
+            if (y >= self.rows) break;
             // Find our cursor if we haven't found it yet. We do this even
             // if the row is not dirty because the cursor is unrelated.
             if (self.cursor.viewport == null and
@@ -894,7 +955,7 @@ test "styled" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 }
 
 test "basic text" {
@@ -913,7 +974,7 @@ test "basic text" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Verify we have the right number of rows
     const row_data = state.row_data.slice();
@@ -951,7 +1012,7 @@ test "styled text" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Verify we have the right number of rows
     const row_data = state.row_data.slice();
@@ -996,7 +1057,7 @@ test "grapheme" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Verify we have the right number of rows
     const row_data = state.row_data.slice();
@@ -1044,7 +1105,7 @@ test "cursor state in viewport" {
     defer state.deinit(alloc);
 
     // Initial update
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(0, state.cursor.active.x);
     try testing.expectEqual(0, state.cursor.active.y);
     try testing.expectEqual(0, state.cursor.viewport.?.x);
@@ -1054,14 +1115,14 @@ test "cursor state in viewport" {
 
     // Set a style on the cursor
     s.nextSlice("\x1b[1m"); // Bold
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expect(!state.cursor.style.default());
     try testing.expect(state.cursor.style.flags.bold);
     s.nextSlice("\x1b[0m"); // Reset style
 
     // Move cursor to 2,1
     s.nextSlice("\x1b[2;3H");
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(2, state.cursor.active.x);
     try testing.expectEqual(1, state.cursor.active.y);
     try testing.expectEqual(2, state.cursor.viewport.?.x);
@@ -1086,7 +1147,7 @@ test "cursor state out of viewport" {
     defer state.deinit(alloc);
 
     // Initial update
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(0, state.cursor.active.x);
     try testing.expectEqual(1, state.cursor.active.y);
     try testing.expectEqual(0, state.cursor.viewport.?.x);
@@ -1094,7 +1155,7 @@ test "cursor state out of viewport" {
 
     // Scroll the viewport
     t.scrollViewport(.top);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Set a style on the cursor
     try testing.expectEqual(0, state.cursor.active.x);
@@ -1119,7 +1180,7 @@ test "dirty state" {
     defer state.deinit(alloc);
 
     // First update should trigger redraw due to resize
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(.full, state.dirty);
 
     // Reset dirty flag and dirty rows
@@ -1131,7 +1192,7 @@ test "dirty state" {
     }
 
     // Second update with no changes - no dirty rows
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(.false, state.dirty);
     {
         const row_data = state.row_data.slice();
@@ -1141,7 +1202,7 @@ test "dirty state" {
 
     // Write to first line
     s.nextSlice("A");
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(.partial, state.dirty);
     {
         const row_data = state.row_data.slice();
@@ -1168,11 +1229,11 @@ test "colors" {
     defer state.deinit(alloc);
 
     // Default colors
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Change cursor color
     s.nextSlice("\x1b]12;#FF0000\x07");
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     const c = state.colors.cursor.?;
     try testing.expectEqual(0xFF, c.r);
@@ -1181,7 +1242,7 @@ test "colors" {
 
     // Change palette color 0 to White
     s.nextSlice("\x1b]4;0;#FFFFFF\x07");
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     const p0 = state.colors.palette[0];
     try testing.expectEqual(0xFF, p0.r);
     try testing.expectEqual(0xFF, p0.g);
@@ -1207,7 +1268,7 @@ test "selection single line" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     const row_data = state.row_data.slice();
     const sels = row_data.items(.selection);
@@ -1217,7 +1278,7 @@ test "selection single line" {
 
     // Clear the selection
     try screen.select(null);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
     try testing.expectEqual(null, sels[0]);
     try testing.expectEqual(null, sels[1]);
     try testing.expectEqual(null, sels[2]);
@@ -1242,7 +1303,7 @@ test "selection multiple lines" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     const row_data = state.row_data.slice();
     const sels = row_data.items(.selection);
@@ -1277,7 +1338,7 @@ test "linkCells" {
 
     // Create a hyperlink
     s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Query link at 0,0
     var cells = try state.linkCells(alloc, .{ .x = 0, .y = 0 });
@@ -1311,7 +1372,7 @@ test "string" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     var w = std.Io.Writer.Allocating.init(alloc);
     defer w.deinit();
@@ -1355,7 +1416,7 @@ test "linkCells with scrollback spanning pages" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     const expected_viewport_y: usize = viewport_rows - tail_rows;
     // BUG: This crashes without the fix
@@ -1382,7 +1443,7 @@ test "linkCells with invalid viewport point" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Row out of bound
     {
@@ -1421,7 +1482,7 @@ test "dirty row resets highlights" {
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Reset dirty state
     state.dirty = .false;
@@ -1454,7 +1515,7 @@ test "dirty row resets highlights" {
     // Write to row 0 to make it dirty
     s.nextSlice("\x1b[H"); // Move to home
     s.nextSlice("X");
-    try state.update(alloc, &t);
+    try state.update(alloc, &t, 0);
 
     // Verify the highlight was reset on the dirty row
     {

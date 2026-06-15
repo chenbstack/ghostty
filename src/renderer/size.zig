@@ -29,18 +29,44 @@ pub const Size = struct {
     screen: ScreenSize,
     cell: CellSize,
     padding: Padding,
+    /// Additional inset (in scaled pixels) ABOVE the terminal grid's
+    /// viewport that the renderer fills with scrollback rows pulled up
+    /// from above the viewport. The terminal itself sees a viewport
+    /// reduced by this many rows (so the grid that the shell sees still
+    /// hugs the lower edge of the inset), but the renderer paints
+    /// `viewportTopExtraRows()` additional rows at the very top so a
+    /// floating chrome composited over the surface shows real content
+    /// scrolling underneath instead of dead background. 0 = disabled.
+    viewport_top_offset: u32 = 0,
 
-    /// Return the grid size for this size. The grid size is calculated by
-    /// taking the screen size, removing padding, and dividing by the cell
-    /// dimensions.
+    /// Return the grid size — i.e. how many rows the TERMINAL sees in
+    /// its viewport. This is the screen minus padding, divided by cell
+    /// dimensions, with the viewport-top-offset rows subtracted on top.
+    /// The renderer paints those extra rows separately above row 0.
     pub fn grid(self: Size) GridSize {
-        return .init(self.screen.subPadding(self.padding), self.cell);
+        var g: GridSize = .init(self.screen.subPadding(self.padding), self.cell);
+        const extra = self.viewportTopExtraRows();
+        g.rows = if (g.rows > extra) g.rows - extra else 1;
+        return g;
     }
 
-    /// The size of the terminal. This is the same as the screen without
-    /// padding.
+    /// The size of the terminal RENDER area in pixels. This is the
+    /// screen minus padding — it includes the viewport-top-offset area
+    /// because the renderer paints cells through it. The shell's
+    /// viewport (see `grid()`) is shorter by `viewport_top_offset`
+    /// pixels' worth of rows.
     pub fn terminal(self: Size) ScreenSize {
         return self.screen.subPadding(self.padding);
+    }
+
+    /// How many full cell rows the renderer paints above the terminal's
+    /// viewport (inside `viewport_top_offset`). Sub-cell remainder
+    /// pixels are dropped here, same way the grid drops the leftover
+    /// sub-cell strip at the bottom.
+    pub fn viewportTopExtraRows(self: Size) GridSize.Unit {
+        if (self.viewport_top_offset == 0 or self.cell.height == 0) return 0;
+        const raw = self.viewport_top_offset / self.cell.height;
+        return std.math.cast(GridSize.Unit, raw) orelse std.math.maxInt(GridSize.Unit);
     }
 
     /// Set the padding to be balanced around the grid. The balanced
@@ -54,10 +80,22 @@ pub const Size = struct {
         // This ensure grid() does the right thing
         self.padding = explicit;
 
+        // Roll the viewport-top inset back into the grid for the
+        // balance calculation. `grid()` reports the rows the *shell*
+        // sees (already shrunk by `viewport_top_offset`), but the
+        // renderer still paints cells through that inset — those rows
+        // are *not* whitespace that should be split between top and
+        // bottom padding. Without this correction, an N-pixel inset
+        // adds N/2 to both padding.top AND padding.bottom (the bottom
+        // visibly grew because viewport-top-offset's "missing" rows
+        // got distributed as balanced whitespace).
+        var grid_for_balance = self.grid();
+        grid_for_balance.rows +|= self.viewportTopExtraRows();
+
         // Now we can calculate the balanced padding
         self.padding = .balanced(
             self.screen,
-            self.grid(),
+            grid_for_balance,
             self.cell,
         );
 
@@ -120,11 +158,16 @@ pub const Coordinate = union(enum) {
         // convert to the surface system first and then reconvert from there.
         const surface = self.convertToSurface(size);
 
+        // Terminal/grid coordinates start at the TOP of the shell's
+        // viewport (below the viewport-top inset), so coordinate math
+        // treats the inset as if it were extra top padding even though
+        // the renderer paints cells through it.
+        const top_inset: u32 = size.padding.top + size.viewport_top_offset;
         return switch (to) {
             .surface => .{ .surface = surface },
             .terminal => .{ .terminal = .{
                 .x = surface.x - @as(f64, @floatFromInt(size.padding.left)),
-                .y = surface.y - @as(f64, @floatFromInt(size.padding.top)),
+                .y = surface.y - @as(f64, @floatFromInt(top_inset)),
             } },
             .grid => grid: {
                 // Get rid of the padding.
@@ -152,11 +195,15 @@ pub const Coordinate = union(enum) {
 
     /// Convert a coordinate to the surface coordinate system.
     fn convertToSurface(self: Coordinate, size: Size) Surface {
+        // See note in `convert` — the inset acts like extra top padding
+        // for terminal/grid coordinates, even though the renderer fills
+        // it with scrollback cells.
+        const top_inset: u32 = size.padding.top + size.viewport_top_offset;
         return switch (self) {
             .surface => |v| v,
             .terminal => |v| .{
                 .x = v.x + @as(f64, @floatFromInt(size.padding.left)),
-                .y = v.y + @as(f64, @floatFromInt(size.padding.top)),
+                .y = v.y + @as(f64, @floatFromInt(top_inset)),
             },
             .grid => |v| grid: {
                 const col: f64 = @floatFromInt(v.x);
@@ -164,7 +211,7 @@ pub const Coordinate = union(enum) {
                 const cell_width: f64 = @floatFromInt(size.cell.width);
                 const cell_height: f64 = @floatFromInt(size.cell.height);
                 const padding_left: f64 = @floatFromInt(size.padding.left);
-                const padding_top: f64 = @floatFromInt(size.padding.top);
+                const padding_top: f64 = @floatFromInt(top_inset);
                 break :grid .{
                     .x = col * cell_width + padding_left,
                     .y = row * cell_height + padding_top,

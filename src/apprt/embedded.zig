@@ -494,6 +494,12 @@ pub const Surface = struct {
 
         /// Userdata passed to io_write_cb.
         io_write_userdata: ?*anyopaque = null,
+
+        /// Per-surface override of the `viewport-top-offset` config (in
+        /// pixels post-scale-factor). 0 means "inherit the global config";
+        /// any non-zero value replaces it. See the config field's doc for
+        /// what the offset does to grid layout and scrollback rendering.
+        viewport_top_offset: u32 = 0,
     };
 
     pub fn init(self: *Surface, app: *App, opts: Options) !void {
@@ -609,6 +615,11 @@ pub const Surface = struct {
         // Wait after command
         if (opts.wait_after_command) {
             config.@"wait-after-command" = true;
+        }
+
+        // Per-surface viewport top offset overrides the global config.
+        if (opts.viewport_top_offset != 0) {
+            config.@"viewport-top-offset" = opts.viewport_top_offset;
         }
 
         // Initialize our surface right away. We're given a view that is
