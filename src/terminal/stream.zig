@@ -467,6 +467,12 @@ pub fn Stream(comptime H: type) type {
             self.handler.deinit();
         }
 
+        /// True when a new consumer can begin parsing subsequent bytes without
+        /// needing any parser or UTF-8 decoder state from earlier input.
+        pub fn atCommandBoundary(self: *const Self) bool {
+            return self.parser.state == .ground and self.utf8decoder.state == 0;
+        }
+
         /// Process a string of characters.
         pub inline fn nextSlice(self: *Self, input: []const u8) void {
             // Disable SIMD optimizations if build requests it or if our
@@ -2401,6 +2407,29 @@ test "stream: print" {
     var s: Stream(H) = .init(.{});
     s.next('x');
     try testing.expectEqual(@as(u21, 'x'), s.handler.c.?);
+}
+
+test "stream: command boundary tracks split control and UTF-8 sequences" {
+    const H = struct {
+        pub fn vt(
+            _: *@This(),
+            comptime action: Action.Tag,
+            _: Action.Value(action),
+        ) void {}
+    };
+
+    var s: Stream(H) = .init(.{});
+    try testing.expect(s.atCommandBoundary());
+
+    s.nextSlice("\x1B[");
+    try testing.expect(!s.atCommandBoundary());
+    s.nextSlice("31m");
+    try testing.expect(s.atCommandBoundary());
+
+    s.nextSlice(&.{0xE0});
+    try testing.expect(!s.atCommandBoundary());
+    s.nextSlice(&.{ 0xA0, 0x80 });
+    try testing.expect(s.atCommandBoundary());
 }
 
 test "simd: print invalid utf-8" {

@@ -2079,6 +2079,12 @@ pub const CAPI = struct {
         var bg_override: ?terminal.color.RGB = null;
         var cursor_color_override: ?terminal.color.RGB = null;
         var scrollback_rows: u32 = 0;
+        var pty_output_seq: u64 = 0;
+        var pty_stream_safe = false;
+        var scrolling_region_top: u32 = 0;
+        var scrolling_region_bottom: u32 = 0;
+        var scrolling_region_left: u32 = 0;
+        var scrolling_region_right: u32 = 0;
 
         {
             core_surface.renderer_state.mutex.lock();
@@ -2103,6 +2109,12 @@ pub const CAPI = struct {
             fg_override = t.colors.foreground.override;
             bg_override = t.colors.background.override;
             cursor_color_override = t.colors.cursor.override;
+            pty_output_seq = core_surface.io.pty_output_seq;
+            pty_stream_safe = core_surface.io.terminal_stream.atCommandBoundary();
+            scrolling_region_top = @intCast(t.scrolling_region.top);
+            scrolling_region_bottom = @intCast(t.scrolling_region.bottom);
+            scrolling_region_left = @intCast(t.scrolling_region.left);
+            scrolling_region_right = @intCast(t.scrolling_region.right);
 
             // Capture every non-default-handled DEC/ANSI mode so the client can
             // restore mouse tracking, bracketed paste, application keys, origin,
@@ -2222,6 +2234,10 @@ pub const CAPI = struct {
         try jw.write(rows);
         try jw.objectField("full");
         try jw.write(true);
+        try jw.objectField("pty_output_seq");
+        try jw.write(pty_output_seq);
+        try jw.objectField("pty_stream_safe");
+        try jw.write(pty_stream_safe);
 
         try jw.objectField("cursor");
         try jw.beginObject();
@@ -2321,6 +2337,18 @@ pub const CAPI = struct {
             try jw.endObject();
         }
         try jw.endArray();
+
+        try jw.objectField("scrolling_region");
+        try jw.beginObject();
+        try jw.objectField("top");
+        try jw.write(scrolling_region_top);
+        try jw.objectField("bottom");
+        try jw.write(scrolling_region_bottom);
+        try jw.objectField("left");
+        try jw.write(scrolling_region_left);
+        try jw.objectField("right");
+        try jw.write(scrolling_region_right);
+        try jw.endObject();
 
         try jw.objectField("scrollback_rows");
         try jw.write(scrollback_rows);
@@ -2540,6 +2568,18 @@ pub const CAPI = struct {
     ) void {
         surface.core_surface.io.pty_tee_cb = cb;
         surface.core_surface.io.pty_tee_userdata = userdata;
+    }
+
+    /// Install the versioned callback used for exact snapshot handoff. It
+    /// fires after parsing while the renderer mutex is still held and carries
+    /// the sequence exported by `ghostty_surface_render_grid_json`.
+    export fn ghostty_surface_set_pty_tee_v2_cb(
+        surface: *Surface,
+        cb: ?*const fn (?*anyopaque, [*]const u8, usize, u64) callconv(.c) void,
+        userdata: ?*anyopaque,
+    ) void {
+        surface.core_surface.io.pty_tee_v2_cb = cb;
+        surface.core_surface.io.pty_tee_v2_userdata = userdata;
     }
 
     /// Returns true if the surface currently has mouse capturing

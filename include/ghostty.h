@@ -1191,6 +1191,16 @@ GHOSTTY_API void ghostty_surface_set_pty_tee_cb(ghostty_surface_t,
                                                 ghostty_pty_tee_cb,
                                                 void* userdata);
 
+// Versioned PTY tee callback for snapshot handoff. Fires after each byte slice
+// has been parsed and includes a monotonically increasing sequence number.
+// A snapshot's pty_output_seq can be used to discard queued callbacks already
+// represented by that snapshot. The legacy callback above remains unchanged.
+typedef void (*ghostty_pty_tee_v2_cb)(void* userdata, const char* bytes,
+                                      uintptr_t len, uint64_t sequence);
+GHOSTTY_API void ghostty_surface_set_pty_tee_v2_cb(ghostty_surface_t,
+                                                   ghostty_pty_tee_v2_cb,
+                                                   void* userdata);
+
 GHOSTTY_API bool ghostty_surface_mouse_captured(ghostty_surface_t);
 GHOSTTY_API bool ghostty_surface_mouse_button(ghostty_surface_t,
                                                  ghostty_input_mouse_state_e,
