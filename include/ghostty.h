@@ -1195,6 +1195,16 @@ GHOSTTY_API void ghostty_surface_set_pty_tee_cb(ghostty_surface_t,
 // has been parsed and includes a monotonically increasing sequence number.
 // A snapshot's pty_output_seq can be used to discard queued callbacks already
 // represented by that snapshot. The legacy callback above remains unchanged.
+//
+// This callback is invoked on the IO read thread WHILE THE RENDERER MUTEX IS
+// HELD, which is what makes the sequence an exact boundary against a snapshot
+// taken concurrently. Two obligations follow for the embedder:
+//   - the callback MUST be cheap and non-blocking (memcpy + wakeup); a slow
+//     callback blocks the render thread and concurrent output processing;
+//   - the callback MUST NOT re-enter any ghostty_surface_* API that takes the
+//     same lock (for example ghostty_surface_render_grid_json); the read
+//     thread already holds that mutex, so re-entering self-deadlocks.
+// Enqueue the bytes off the read thread and return, as with the legacy tee.
 typedef void (*ghostty_pty_tee_v2_cb)(void* userdata, const char* bytes,
                                       uintptr_t len, uint64_t sequence);
 GHOSTTY_API void ghostty_surface_set_pty_tee_v2_cb(ghostty_surface_t,
