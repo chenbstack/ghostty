@@ -467,6 +467,20 @@ pub fn Stream(comptime H: type) type {
             self.handler.deinit();
         }
 
+        /// True when a new consumer can begin parsing subsequent bytes without
+        /// needing any parser or UTF-8 decoder state from earlier input.
+        ///
+        /// `.ground` is the parser's idle state, and a UTF-8 decoder state of 0
+        /// is its accept state. A split CSI (for example "ESC [" without the
+        /// final byte) keeps the parser off `.ground`, and a split multibyte
+        /// sequence keeps the decoder off accept. String-collecting control
+        /// strings behave the same way: a read that ends inside an OSC, DCS, or
+        /// APC string body (before its ST/BEL terminator) is still mid-sequence,
+        /// so a snapshot taken at that point is correctly reported as unsafe.
+        pub fn atCommandBoundary(self: *const Self) bool {
+            return self.parser.state == .ground and self.utf8decoder.state == 0;
+        }
+
         /// Process a string of characters.
         pub inline fn nextSlice(self: *Self, input: []const u8) void {
             // Disable SIMD optimizations if build requests it or if our
@@ -2401,6 +2415,53 @@ test "stream: print" {
     var s: Stream(H) = .init(.{});
     s.next('x');
     try testing.expectEqual(@as(u21, 'x'), s.handler.c.?);
+}
+
+test "stream: command boundary tracks split control and UTF-8 sequences" {
+    const H = struct {
+        pub fn vt(
+            _: *@This(),
+            comptime action: Action.Tag,
+            _: Action.Value(action),
+        ) void {}
+    };
+
+    var s: Stream(H) = .init(.{});
+    try testing.expect(s.atCommandBoundary());
+
+    s.nextSlice("\x1B[");
+    try testing.expect(!s.atCommandBoundary());
+    s.nextSlice("31m");
+    try testing.expect(s.atCommandBoundary());
+
+    s.nextSlice(&.{0xE0});
+    try testing.expect(!s.atCommandBoundary());
+    s.nextSlice(&.{ 0xA0, 0x80 });
+    try testing.expect(s.atCommandBoundary());
+}
+
+test "stream: command boundary rejects a split OSC string" {
+    const H = struct {
+        pub fn vt(
+            _: *@This(),
+            comptime action: Action.Tag,
+            _: Action.Value(action),
+        ) void {}
+    };
+
+    var s: Stream(H) = .init(.{});
+    try testing.expect(s.atCommandBoundary());
+
+    // OSC 2 (window title) body delivered without its ST terminator: the
+    // parser is collecting the string body, so a snapshot taken here would be
+    // mid-sequence and must be reported as unsafe.
+    s.nextSlice("\x1B]2;half-title");
+    try testing.expect(!s.atCommandBoundary());
+
+    // Delivering ST ("\x1B\\") closes the string and returns the parser to
+    // ground, so subsequent bytes can be consumed from a clean boundary.
+    s.nextSlice("\x1B\\");
+    try testing.expect(s.atCommandBoundary());
 }
 
 test "simd: print invalid utf-8" {

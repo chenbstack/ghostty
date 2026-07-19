@@ -75,6 +75,19 @@ manual_linefeed_mode: std.atomic.Value(bool) = .{ .raw = false },
 pty_tee_cb: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
 pty_tee_userdata: ?*anyopaque = null,
 
+/// Versioned tee for snapshot handoff. This callback runs after parsing while
+/// the renderer mutex is still held, so a snapshot sequence is an exact
+/// boundary between the painted grid and queued raw output.
+///
+/// Because it fires under the renderer mutex, the callback MUST be cheap and
+/// non-blocking, and MUST NOT re-enter any API that locks `renderer_state`
+/// (for example the render-grid snapshot in `apprt.embedded`); the read thread
+/// already holds that mutex, so re-entering self-deadlocks. Enqueue the bytes
+/// off the read thread and return, exactly as the legacy tee above requires.
+pty_tee_v2_cb: ?*const fn (?*anyopaque, [*]const u8, usize, u64) callconv(.c) void = null,
+pty_tee_v2_userdata: ?*anyopaque = null,
+pty_output_seq: u64 = 0,
+
 /// The stream parser. This parses the stream of escape codes and so on
 /// from the child process and calls callbacks in the stream handler.
 terminal_stream: StreamHandler.Stream,
@@ -765,12 +778,13 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
 /// call with pty data but it is also called by the read thread when using
 /// an exec subprocess.
 pub fn processOutput(self: *Termio, buf: []const u8) void {
-    // cmux fork: tee raw PTY bytes BEFORE locking the renderer mutex or
-    // touching terminal state. The tee callback is expected to be cheap
-    // (typically a memcpy into a ring buffer + a wakeup). It runs on the
-    // read thread; the embedder owns thread safety for any cross-thread
-    // hand-off. Tee fires for every byte the read thread produces,
-    // regardless of mode.
+    // Legacy tee: deliver raw PTY bytes BEFORE locking the renderer mutex or
+    // touching terminal state. The callback is expected to be cheap (typically
+    // a memcpy into a ring buffer plus a wakeup). It runs on the read thread
+    // and the embedder owns thread safety for any cross-thread hand-off, and
+    // it fires for every byte slice regardless of mode. This pre-parse timing
+    // and the three-argument ABI are load-bearing for existing embedders, so
+    // keep this call first and unchanged.
     if (self.pty_tee_cb) |cb| cb(self.pty_tee_userdata, buf.ptr, buf.len);
 
     // We are modifying terminal state from here on out and we need
@@ -778,6 +792,21 @@ pub fn processOutput(self: *Termio, buf: []const u8) void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
     self.processOutputLocked(buf);
+
+    // v2 tee: publish the raw bytes only after the terminal state contains
+    // them, while the renderer mutex is still held. Snapshots read this
+    // sequence under the same mutex, creating an exact handoff boundary for
+    // late subscribers: a snapshot with sequence N implies every v2 callback
+    // with sequence <= N is already reflected in the painted grid.
+    //
+    // The lock is held here, so the callback MUST be cheap and non-blocking
+    // and MUST NOT re-enter any API that locks `renderer_state` (for example
+    // the render-grid snapshot); the read thread already holds the mutex, so
+    // re-entering self-deadlocks.
+    self.pty_output_seq +%= 1;
+    if (self.pty_tee_v2_cb) |cb| {
+        cb(self.pty_tee_v2_userdata, buf.ptr, buf.len, self.pty_output_seq);
+    }
 }
 
 /// Process output from readdata but the lock is already held.
